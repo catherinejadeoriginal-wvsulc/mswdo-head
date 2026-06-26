@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "MSWDO Head Portal",
+  "description": "A comprehensive web portal for the Municipal Social Welfare and Development Office (MSWDO) Head to manage social aid programs, budgets, focal persons, and resident registries.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
