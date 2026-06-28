@@ -64,7 +64,9 @@
 <div class="toast-wrapper fixed bottom-5 right-5 z-50 flex flex-col gap-2" id="toast-wrapper"></div>
 
 <!-- Global Scripts -->
+<script src="js/chart_offline_fallback.js"></script>
 <script src="js/toggle_menu.js"></script>
 <script src="js/profile_modal.js"></script>
+<script src="js/lucide_offline.js"></script>
 </body>
 </html>

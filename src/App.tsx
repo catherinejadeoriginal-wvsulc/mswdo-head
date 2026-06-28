@@ -57,6 +57,7 @@ import FocalView, { FocalPerson } from './components/FocalView';
 import BudgetView from './components/BudgetView';
 import ReportsView from './components/ReportsView';
 import ProfileModal from './components/ProfileModal';
+import { isApiAvailable as isSupabaseConfigured, dbService } from './lib/apiClient';
 
 // Initial Focal Persons list
 const INITIAL_FOCAL_PERSONS: FocalPerson[] = [
@@ -113,6 +114,11 @@ const INITIAL_FOCAL_PERSONS: FocalPerson[] = [
 ];
 
 export default function App() {
+  // Database Connection Mode & Sync state
+  const [dbMode, setDbMode] = useState<'local' | 'mysql'>('local');
+  const [isLoadingDB, setIsLoadingDB] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
+
   // State variables synchronized with localStorage
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     return (localStorage.getItem('mswdo_active_tab') as ActiveTab) || 'dashboard';
@@ -238,6 +244,9 @@ export default function App() {
       status: 'Completed'
     };
     setAllocationHistory(prev => [newRecord, ...prev]);
+    if (isSupabaseConfigured) {
+      dbService.upsertAllocationHistory(newRecord).catch(err => console.error("Error upserting history in Supabase:", err));
+    }
   };
 
   // UI state
@@ -258,6 +267,37 @@ export default function App() {
   const [grantAmount, setGrantAmount] = useState(5000);
   const [grantBarangay, setGrantBarangay] = useState(LIST_OF_BARANGAYS[0]);
   const [grantStatus, setGrantStatus] = useState<'Disbursed' | 'Pending'>('Disbursed');
+
+  // Initial data synchronization from Express API / MySQL database
+  useEffect(() => {
+    if (isSupabaseConfigured) {
+      const loadDatabaseData = async () => {
+        setIsLoadingDB(true);
+        setDbError(null);
+        try {
+          const data = await dbService.syncAllData();
+          if (data.programs && data.programs.length > 0) setPrograms(data.programs);
+          if (data.disbursements && data.disbursements.length > 0) setDisbursements(data.disbursements);
+          if (data.pwdRecords && data.pwdRecords.length > 0) setPWDRecords(data.pwdRecords);
+          if (data.seniorRecords && data.seniorRecords.length > 0) setSeniorRecords(data.seniorRecords);
+          if (data.soloParentRecords && data.soloParentRecords.length > 0) setSoloParentRecords(data.soloParentRecords);
+          if (data.focalPersons && data.focalPersons.length > 0) setFocalPersons(data.focalPersons);
+          if (data.allocationHistory && data.allocationHistory.length > 0) setAllocationHistory(data.allocationHistory);
+          if (data.profile && data.profile.fullName) setProfile((prev: any) => ({ ...prev, ...data.profile }));
+          setDbMode(data.mode === 'mysql' ? 'mysql' : 'local');
+        } catch (err: any) {
+          console.error("Failed to sync database data:", err);
+          setDbError(err.message || 'MySQL database connection failed.');
+          setDbMode('local'); // Fallback to local state
+        } finally {
+          setIsLoadingDB(false);
+        }
+      };
+      loadDatabaseData();
+    } else {
+      setDbMode('local');
+    }
+  }, []);
 
   // Persistence side effects
   useEffect(() => {
@@ -329,16 +369,23 @@ export default function App() {
 
     // Update disbursements
     setDisbursements(prev => [newDisb, ...prev]);
+    if (isSupabaseConfigured) {
+      dbService.upsertDisbursement(newDisb).catch(err => console.error("Error upserting disbursement:", err));
+    }
 
     // If active and disbursed, automatically update program utilization!
     if (grantStatus === 'Disbursed') {
       setPrograms(prev => prev.map(p => {
         if (p.id === selectedProgramId) {
-          return {
+          const updatedProgram = {
             ...p,
             utilizedBudget: p.utilizedBudget + grantAmount,
             beneficiariesCount: p.beneficiariesCount + 1
           };
+          if (isSupabaseConfigured) {
+            dbService.upsertProgram(updatedProgram).catch(err => console.error("Error updating program:", err));
+          }
+          return updatedProgram;
         }
         return p;
       }));
@@ -369,13 +416,20 @@ export default function App() {
       beneficiariesCount: 0
     };
     setPrograms(prev => [...prev, newProgram]);
+    if (isSupabaseConfigured) {
+      dbService.upsertProgram(newProgram).catch(err => console.error("Error adding program:", err));
+    }
   };
 
   // Update budget allocation for a program
   const handleUpdateProgramBudget = (id: string, newAlloc: number) => {
     setPrograms(prev => prev.map(p => {
       if (p.id === id) {
-        return { ...p, allocatedBudget: newAlloc };
+        const updatedProgram = { ...p, allocatedBudget: newAlloc };
+        if (isSupabaseConfigured) {
+          dbService.upsertProgram(updatedProgram).catch(err => console.error("Error updating program budget:", err));
+        }
+        return updatedProgram;
       }
       return p;
     }));
@@ -386,7 +440,11 @@ export default function App() {
     setPrograms(prev => prev.map(p => {
       if (p.id === id) {
         const nextStatus = p.status === 'Active' ? 'Inactive' : 'Active';
-        return { ...p, status: nextStatus };
+        const updatedProgram = { ...p, status: nextStatus };
+        if (isSupabaseConfigured) {
+          dbService.upsertProgram(updatedProgram).catch(err => console.error("Error toggling program status:", err));
+        }
+        return updatedProgram;
       }
       return p;
     }));
@@ -400,13 +458,20 @@ export default function App() {
       registrationDate: new Date().toISOString().slice(0, 10)
     };
     setPWDRecords(prev => [newRecord, ...prev]);
+    if (isSupabaseConfigured) {
+      dbService.upsertPWDRecord(newRecord).catch(err => console.error("Error adding PWD:", err));
+    }
   };
 
   // Update PWD Status
   const handleUpdatePWDStatus = (id: string, status: 'Active' | 'Inactive') => {
     setPWDRecords(prev => prev.map(r => {
       if (r.id === id) {
-        return { ...r, status };
+        const updated = { ...r, status };
+        if (isSupabaseConfigured) {
+          dbService.upsertPWDRecord(updated).catch(err => console.error("Error updating PWD status:", err));
+        }
+        return updated;
       }
       return r;
     }));
@@ -417,7 +482,11 @@ export default function App() {
     setPWDRecords(prev => prev.map(r => {
       if (r.id === id) {
         const nextStatus = r.assistanceStatus === 'Claimed' ? 'Unclaimed' : 'Claimed';
-        return { ...r, assistanceStatus: nextStatus };
+        const updated = { ...r, assistanceStatus: nextStatus };
+        if (isSupabaseConfigured) {
+          dbService.upsertPWDRecord(updated).catch(err => console.error("Error toggling PWD claim status:", err));
+        }
+        return updated;
       }
       return r;
     }));
@@ -431,13 +500,20 @@ export default function App() {
       registrationDate: new Date().toISOString().slice(0, 10)
     };
     setSeniorRecords(prev => [newRecord, ...prev]);
+    if (isSupabaseConfigured) {
+      dbService.upsertSeniorRecord(newRecord).catch(err => console.error("Error adding Senior:", err));
+    }
   };
 
   // Update Pension Status for Senior Citizen
   const handleUpdatePensionStatus = (id: string, status: 'Active' | 'Suspended' | 'Pending') => {
     setSeniorRecords(prev => prev.map(r => {
       if (r.id === id) {
-        return { ...r, pensionStatus: status };
+        const updated = { ...r, pensionStatus: status };
+        if (isSupabaseConfigured) {
+          dbService.upsertSeniorRecord(updated).catch(err => console.error("Error updating Senior pension status:", err));
+        }
+        return updated;
       }
       return r;
     }));
@@ -462,15 +538,22 @@ export default function App() {
 
     // Add to disbursements
     setDisbursements(prev => [newDisb, ...prev]);
+    if (isSupabaseConfigured) {
+      dbService.upsertDisbursement(newDisb).catch(err => console.error("Error upserting pension disbursement:", err));
+    }
 
     // Deduct from program budget
     setPrograms(prev => prev.map(p => {
       if (p.id === 'prog-3') { // Senior Program ID
-        return {
+        const updatedProgram = {
           ...p,
           utilizedBudget: p.utilizedBudget + stipendAmount,
           beneficiariesCount: p.beneficiariesCount + 1
         };
+        if (isSupabaseConfigured) {
+          dbService.upsertProgram(updatedProgram).catch(err => console.error("Error updating program budget:", err));
+        }
+        return updatedProgram;
       }
       return p;
     }));
@@ -478,7 +561,11 @@ export default function App() {
     // Update claim date
     setSeniorRecords(prev => prev.map(r => {
       if (r.id === id) {
-        return { ...r, lastClaimDate: new Date().toISOString().slice(0, 10) };
+        const updatedSenior = { ...r, lastClaimDate: new Date().toISOString().slice(0, 10) };
+        if (isSupabaseConfigured) {
+          dbService.upsertSeniorRecord(updatedSenior).catch(err => console.error("Error updating senior last claim date:", err));
+        }
+        return updatedSenior;
       }
       return r;
     }));
@@ -492,13 +579,20 @@ export default function App() {
       registrationDate: new Date().toISOString().slice(0, 10)
     };
     setSoloParentRecords(prev => [fullRec, ...prev]);
+    if (isSupabaseConfigured) {
+      dbService.upsertSoloParentRecord(fullRec).catch(err => console.error("Error adding Solo Parent:", err));
+    }
   };
 
   // Renew Solo Parent Card
   const handleRenewCard = (id: string) => {
     setSoloParentRecords(prev => prev.map(r => {
       if (r.id === id) {
-        return { ...r, cardStatus: 'Active' };
+        const updated = { ...r, cardStatus: 'Active' as const };
+        if (isSupabaseConfigured) {
+          dbService.upsertSoloParentRecord(updated).catch(err => console.error("Error renewing card:", err));
+        }
+        return updated;
       }
       return r;
     }));
@@ -508,7 +602,11 @@ export default function App() {
   const handleUpdateEmployment = (id: string, empStatus: 'Employed' | 'Unemployed' | 'Self-Employed') => {
     setSoloParentRecords(prev => prev.map(r => {
       if (r.id === id) {
-        return { ...r, employmentStatus: empStatus };
+        const updated = { ...r, employmentStatus: empStatus };
+        if (isSupabaseConfigured) {
+          dbService.upsertSoloParentRecord(updated).catch(err => console.error("Error updating employment:", err));
+        }
+        return updated;
       }
       return r;
     }));
@@ -540,14 +638,21 @@ export default function App() {
       };
 
       setDisbursements(prev => [newDisb, ...prev]);
+      if (isSupabaseConfigured) {
+        dbService.upsertDisbursement(newDisb).catch(err => console.error("Error adding disbursement for barangay request:", err));
+      }
 
       setPrograms(prev => prev.map(p => {
         if (p.id === randomProgram.id) {
-          return {
+          const updatedProgram = {
             ...p,
             utilizedBudget: p.utilizedBudget + stipendAmount,
             beneficiariesCount: p.beneficiariesCount + 1
           };
+          if (isSupabaseConfigured) {
+            dbService.upsertProgram(updatedProgram).catch(err => console.error("Error updating program for barangay request:", err));
+          }
+          return updatedProgram;
         }
         return p;
       }));
@@ -576,10 +681,18 @@ export default function App() {
   const handleApplyRecommendation = (sourceProgId: string, destProgId: string, amount: number) => {
     setPrograms(prev => prev.map(p => {
       if (p.id === sourceProgId) {
-        return { ...p, allocatedBudget: Math.max(0, p.allocatedBudget - amount) };
+        const updated = { ...p, allocatedBudget: Math.max(0, p.allocatedBudget - amount) };
+        if (isSupabaseConfigured) {
+          dbService.upsertProgram(updated).catch(err => console.error("Error updating source program budget:", err));
+        }
+        return updated;
       }
       if (p.id === destProgId) {
-        return { ...p, allocatedBudget: p.allocatedBudget + amount };
+        const updated = { ...p, allocatedBudget: p.allocatedBudget + amount };
+        if (isSupabaseConfigured) {
+          dbService.upsertProgram(updated).catch(err => console.error("Error updating dest program budget:", err));
+        }
+        return updated;
       }
       return p;
     }));
@@ -593,14 +706,29 @@ export default function App() {
       caseload: Math.floor(Math.random() * 30) + 10
     };
     setFocalPersons(prev => [...prev, newFoc]);
+    if (isSupabaseConfigured) {
+      dbService.upsertFocalPerson(newFoc).catch(err => console.error("Error adding focal person:", err));
+    }
   };
 
   const handleUpdateFocalPerson = (id: string, updated: Partial<FocalPerson>) => {
-    setFocalPersons(prev => prev.map(f => f.id === id ? { ...f, ...updated } : f));
+    setFocalPersons(prev => prev.map(f => {
+      if (f.id === id) {
+        const merged = { ...f, ...updated };
+        if (isSupabaseConfigured) {
+          dbService.upsertFocalPerson(merged).catch(err => console.error("Error updating focal person:", err));
+        }
+        return merged;
+      }
+      return f;
+    }));
   };
 
   const handleDeleteFocalPerson = (id: string) => {
     setFocalPersons(prev => prev.filter(f => f.id !== id));
+    if (isSupabaseConfigured) {
+      dbService.deleteFocalPerson(id).catch(err => console.error("Error deleting focal person:", err));
+    }
   };
 
   // Dynamic content router
@@ -726,7 +854,17 @@ export default function App() {
             />
             <div className="min-w-0">
               <p className="text-xs font-black truncate">{profile.fullName}</p>
-              <p className="text-[9px] uppercase font-bold text-emerald-600 tracking-widest mt-0.5">● Online</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[9px] uppercase font-bold text-emerald-600 tracking-widest">● Online</span>
+                <span className="text-gray-400">|</span>
+                {isLoadingDB ? (
+                  <span className="text-[9px] uppercase font-bold text-amber-500 tracking-widest animate-pulse">Syncing...</span>
+                ) : dbMode === 'mysql' ? (
+                  <span className="text-[9px] uppercase font-bold text-blue-600 tracking-widest" title="Connected to MySQL Database">MySQL Active</span>
+                ) : (
+                  <span className="text-[9px] uppercase font-bold text-gray-500 tracking-widest" title="Using Local Flat-File JSON">Local Fallback</span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1023,6 +1161,22 @@ export default function App() {
       {/* 2. Main Viewport Container */}
       <main className="flex-1 flex flex-col min-w-0">
         
+        {/* MySQL Status Banner */}
+        {dbError ? (
+          <div className="bg-red-50 border-b border-red-200 px-6 py-2 flex items-center justify-between text-xs text-red-700" id="db-error-banner">
+            <span className="font-semibold flex items-center gap-1.5">
+              ⚠️ Database Connection Failed: {dbError}. Defaulting to Local fallback.
+            </span>
+          </div>
+        ) : dbMode === 'local' ? (
+          <div className="bg-[#f0f4fe] border-b border-[#003fb1]/10 px-6 py-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-[#003fb1]" id="db-config-banner">
+            <div className="flex items-center gap-2 font-medium">
+              <span className="bg-[#003fb1]/10 text-[#003fb1] font-black px-1.5 py-0.5 rounded-sm text-[10px]">MYSQL DB</span>
+              <span>Running in <strong>Local Fallback Mode</strong>. Configure your MySQL credentials (<code>MYSQL_HOST</code>, <code>MYSQL_USER</code>, <code>MYSQL_PASSWORD</code>, <code>MYSQL_DATABASE</code>) in <code>.env</code>.</span>
+            </div>
+          </div>
+        ) : null}
+
         {/* Top App Bar Header */}
         <header className="flex justify-between items-center px-6 lg:px-10 sticky top-0 z-30 w-full bg-white h-16 border-b border-[#c3c5d7]/50 shadow-xs" id="top-app-bar">
           <div className="flex items-center gap-4">
