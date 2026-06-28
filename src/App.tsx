@@ -57,6 +57,7 @@ import FocalView, { FocalPerson } from './components/FocalView';
 import BudgetView from './components/BudgetView';
 import ReportsView from './components/ReportsView';
 import ProfileModal from './components/ProfileModal';
+import LoginView from './components/LoginView';
 import { isApiAvailable as isSupabaseConfigured, dbService } from './lib/apiClient';
 
 // Initial Focal Persons list
@@ -114,6 +115,16 @@ const INITIAL_FOCAL_PERSONS: FocalPerson[] = [
 ];
 
 export default function App() {
+  // Session login state
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return localStorage.getItem('mswdo_logged_in') === 'true';
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem('mswdo_logged_in');
+    setIsLoggedIn(false);
+  };
+
   // Database Connection Mode & Sync state
   const [dbMode, setDbMode] = useState<'local' | 'mysql'>('local');
   const [isLoadingDB, setIsLoadingDB] = useState(false);
@@ -829,6 +840,19 @@ export default function App() {
 
   const isProgramsTabActive = ['programs', 'pwd', 'seniors', 'soloparents'].includes(activeTab);
 
+  if (!isLoggedIn) {
+    return (
+      <LoginView 
+        correctEmail={profile.email} 
+        correctPass={profile.password || 'password123'} 
+        onLoginSuccess={() => {
+          localStorage.setItem('mswdo_logged_in', 'true');
+          setIsLoggedIn(true);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-[#f9f9ff] text-[#151c27] font-sans antialiased" id="mswdo-app-root">
       
@@ -1009,7 +1033,7 @@ export default function App() {
         {/* Bottom controls */}
         <div className="p-6 mt-auto border-t border-slate-100">
           <button 
-            onClick={() => alert('Sign Out simulated successfully.')}
+            onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 py-2.5 px-4 border border-[#737686] hover:bg-slate-50 transition-colors rounded-xl text-[#5c5f60] hover:text-[#151c27] text-xs font-bold"
           >
             <LogOut className="w-4 h-4 shrink-0" />
@@ -1146,7 +1170,10 @@ export default function App() {
 
               <div className="mt-auto border-t border-slate-100 pt-4">
                 <button 
-                  onClick={() => setIsMobileSidebarOpen(false)}
+                  onClick={() => {
+                    setIsMobileSidebarOpen(false);
+                    handleLogout();
+                  }}
                   className="w-full flex items-center gap-3 px-4 py-3 text-xs text-[#5c5f60] font-black"
                 >
                   <LogOut className="w-5 h-5 shrink-0" />
